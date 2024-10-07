@@ -1,3 +1,5 @@
+# Note: A Go version of these tests is available in test_websocket_test.go
+
 import base64
 import pytest
 import time
