@@ -45,6 +45,8 @@ type WebsocketsTestSuite struct {
 	project           *management.Project
 	namespace         *coreV1.Namespace
 	createdDeployment *appsV1.Deployment
+	adminToken        string
+	host              string
 }
 
 func (w *WebsocketsTestSuite) SetupSuite() {
@@ -72,6 +74,8 @@ func (w *WebsocketsTestSuite) SetupSuite() {
 	require.NoError(w.T(), err, "Error creating deployment")
 	w.createdDeployment = createdDeployment
 
+	w.adminToken = w.client.RancherConfig.AdminToken
+	w.host = w.client.RancherConfig.Host
 }
 
 func (w *WebsocketsTestSuite) TearDownSuite() {
@@ -95,16 +99,15 @@ func (wp *WebsocketLogParse) readPump(wsc *ws.Conn) {
 	}
 }
 
-func createWebsocketConnection(shellUrl string, token string) (*ws.Conn, error) {
-	//headers := http.Header{}
-	//headers.Add("Authorization", token)
-	//u := url.URL{Scheme: "wss", Host: testUrl, Path: shellUrl}
-	u := url.URL{Scheme: "wss", Path: shellUrl}
+func createWebsocketConnection(shellUrl string, host string, token string) (*ws.Conn, error) {
+	u := url.URL{Scheme: "wss", Host: host, Path: shellUrl}
 	customDialer := NewCustomDialer(u.String(), token, true)
-	c, _, err := customDialer.Connect()
-	//c, _, err := ws.DefaultDialer.Dial(u.String(), nil)
+	c, resp, err := customDialer.Connect()
+
 	if err != nil {
 		fmt.Println("Failed to connect to the websocket:", err)
+		fmt.Println(resp.Status)
+		fmt.Println(resp.Body)
 	}
 	return c, err
 }
@@ -115,13 +118,7 @@ func (w *WebsocketsTestSuite) TestWebsocketLaunchKubectl() {
 
 	w.Run("Verify kubectl is launched through a websocket", func() {
 
-		//wsc, err := createWebsocketConnection(shellUrl)
-		headers := map[string][]string{
-			"Content-Type":  {"application/json"},
-			"Authorization": {w.client.RancherConfig.AdminToken},
-		}
-		wsc, resp, err := w.client.Management.APIBaseClient.Websocket(w.client.RancherConfig.Host, headers)
-		w.T().Log(resp)
+		wsc, err := createWebsocketConnection(shellUrl, w.host, w.adminToken)
 		wlp := &WebsocketLogParse{}
 
 		wg := sync.WaitGroup{}
@@ -159,7 +156,6 @@ func (w *WebsocketsTestSuite) TestWebsocketExecShell() {
 
 	w.Run("Verify exec shell is launched through a websocket", func() {
 
-		testUrl = w.client.RancherConfig.Host
 		params := url.Values{}
 		params.Add("stdout", "1")
 		params.Add("stdin", "1")
@@ -172,16 +168,9 @@ func (w *WebsocketsTestSuite) TestWebsocketExecShell() {
 
 		containerName := w.createdDeployment.Spec.Template.Spec.Containers[0].Name
 
-		u := url.URL{Host: testUrl, Path: "/k8s/clusters/" + w.cluster.ID + "/api/v1/namespaces/" + w.namespace.Name + "/pods/" + podName + "/exec?container=" + containerName, RawQuery: params.Encode()}
-		//u := url.URL{Host: testUrl, Path: "clusters/pods/" + podName + "/namespace/" + containerName, RawQuery: params.Encode()}
+		u := url.URL{Host: w.host, Path: "/k8s/clusters/" + w.cluster.ID + "/api/v1/namespaces/" + w.namespace.Name + "/pods/" + podName + "/exec?container=" + containerName, RawQuery: params.Encode()}
 
-		wsc, err := createWebsocketConnection(u.String(), w.client.RancherConfig.AdminToken)
-		//headers := map[string][]string{
-		//	"Content-Type":  {"application/json"},
-		//	"Authorization": {w.client.RancherConfig.AdminToken},
-		//}
-		//wsc, resp, err := w.client.Management.APIBaseClient.Websocket(u.String(), headers)
-		//w.T().Log(resp)
+		wsc, err := createWebsocketConnection(u.String(), w.host, w.adminToken)
 		wlp := &WebsocketLogParse{}
 
 		wg := sync.WaitGroup{}
@@ -213,21 +202,19 @@ func (w *WebsocketsTestSuite) TestWebsocketViewLogs() {
 
 	w.Run("Verify logs are viewed through a websocket", func() {
 		params := url.Values{}
-		params.Add("tailLines", "500")
-		params.Add("follow", "true")
-		params.Add("timestamps", "true")
-		params.Add("previous", "false")
+		//params.Add("previous", "false")
+		//params.Add("follow", "true")
+		//params.Add("timestamps", "true")
+		//params.Add("pretty", "true")
+		//params.Add("container", w.createdDeployment.Spec.Template.Spec.Containers[0].Name)
+		//params.Add("sinceSeconds", "1800")
 
-		//u := url.URL{Host: testUrl, Path: "clusters/pods/" + podName + "/namespace/" + containerName + "/logs", RawQuery: params.Encode()}
-		//
-		//wsc, err := createWebsocketConnection(u.String())
-		headers := map[string][]string{
-			"Content-Type":  {"application/json"},
-			"Authorization": {w.client.RancherConfig.AdminToken},
-		}
-		wsc, resp, err := w.client.Management.APIBaseClient.Websocket(w.client.RancherConfig.Host, headers)
-		w.T().Log(resp)
-		assert.NoError(w.T(), err)
+		podNames, err := pod.GetPodNamesFromDeployment(w.client, w.cluster.ID, w.namespace.Name, w.createdDeployment.Name)
+		podName = podNames[0]
+		///k8s/clusters/c-m-hlx49zf4/api/v1/namespaces/auto-testns-yprnf/pods/auto-testdeployment-xjmie-86d5864f4c-h2k9m/log?follow=true&previous=false&tailLines=500&timestamps=true
+		///k8s/clusters/c-m-hlx49zf4/api/v1/namespaces/auto-testns-lhvql/pods/auto-testdeployment-myyjg-6979d445f5-fng9c/log
+		u := url.URL{Path: "/k8s/clusters/" + w.cluster.ID + "/api/v1/namespaces/" + w.namespace.Name + "/pods/" + podName + "/log", RawQuery: params.Encode()}
+		wsc, err := createWebsocketConnection(u.String(), w.host, w.adminToken)
 		wlp := &WebsocketLogParse{}
 
 		wg := sync.WaitGroup{}
