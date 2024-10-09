@@ -21,13 +21,12 @@ func NewCustomDialer(urlStr, token string, insecureSkipVerify bool) *CustomDiale
 	if err != nil {
 		log.Fatalf("Failed to parse URL: %v", err)
 	}
-
 	headers := http.Header{}
-	//headers.Add("Authorization", "Bearer " + token)
 	headers.Add("Cookie", "R_SESS"+"="+token)
 
 	dialer := websocket.Dialer{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: insecureSkipVerify},
+		Subprotocols:    []string{"base64.channel.k8s.io"},
 	}
 
 	return &CustomDialer{
