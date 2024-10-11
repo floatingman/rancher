@@ -168,7 +168,7 @@ func (w *WebsocketsTestSuite) TestWebsocketExecShell() {
 
 		containerName := w.createdDeployment.Spec.Template.Spec.Containers[0].Name
 
-		u := url.URL{Host: w.host, Path: "/k8s/clusters/" + w.cluster.ID + "/api/v1/namespaces/" + w.namespace.Name + "/pods/" + podName + "/exec?container=" + containerName, RawQuery: params.Encode()}
+		u := url.URL{Path: "/k8s/clusters/" + w.cluster.ID + "/api/v1/namespaces/" + w.namespace.Name + "/pods/" + podName + "/exec?container=" + containerName, RawQuery: params.Encode()}
 
 		wsc, err := createWebsocketConnection(u.String(), w.host, w.adminToken)
 		wlp := &WebsocketLogParse{}
@@ -202,12 +202,10 @@ func (w *WebsocketsTestSuite) TestWebsocketViewLogs() {
 
 	w.Run("Verify logs are viewed through a websocket", func() {
 		params := url.Values{}
-		//params.Add("previous", "false")
-		//params.Add("follow", "true")
-		//params.Add("timestamps", "true")
-		//params.Add("pretty", "true")
-		//params.Add("container", w.createdDeployment.Spec.Template.Spec.Containers[0].Name)
-		//params.Add("sinceSeconds", "1800")
+		params.Add("tailLines", "500")
+		params.Add("follow", "true")
+		params.Add("timestamps", "true")
+		params.Add("previous", "false")
 
 		podNames, err := pod.GetPodNamesFromDeployment(w.client, w.cluster.ID, w.namespace.Name, w.createdDeployment.Name)
 		podName = podNames[0]
