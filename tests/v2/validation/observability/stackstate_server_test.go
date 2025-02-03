@@ -204,6 +204,87 @@ func (sss *StackStateServerTestSuite) TestInstallStackState() {
 		require.Empty(sss.T(), podErrors)
 	})
 }
+func (sss *StackStateServerTestSuite) TestInstallStackStateHAValues() {
+	subsession := sss.session.NewSession()
+	defer subsession.Cleanup()
+
+	sss.Run("Install SUSE Observability Chart", func() {
+		// Read cattle config
+		var stackstateConfigs observability.StackStateConfig
+		config.LoadConfig(stackStateConfigFileKey, &stackstateConfigs)
+
+		// Set base config values
+		baseConfig := observability.BaseConfig{
+			Global: struct {
+				ImageRegistry string `json:"imageRegistry" yaml:"imageRegistry"`
+			}{
+				ImageRegistry: "registry.rancher.com",
+			},
+			Stackstate: observability.StackstateServerConfig{
+				BaseUrl: stackstateConfigs.Url,
+				Authentication: observability.AuthenticationConfig{
+					AdminPassword: stackstateConfigs.AdminPassword,
+				},
+				ApiKey: observability.ApiKeyConfig{
+					Key: stackstateConfigs.ClusterApiKey,
+				},
+				License: observability.LicenseConfig{
+					Key: stackstateConfigs.License,
+				},
+			},
+		}
+
+		ingressConfig := observability.IngressConfig{
+			Ingress: observability.Ingress{
+				Enabled: true,
+				Annotations: map[string]string{
+					"nginx.ingress.kubernetes.io/proxy-body-size": "50m",
+				},
+				Hosts: []observability.Host{
+					{
+						Host: stackstateConfigs.Url,
+					},
+				},
+				TLS: []observability.TLSConfig{
+					{
+						Hosts:      []string{stackstateConfigs.Url},
+						SecretName: "tls-secret",
+					},
+				},
+			},
+		}
+
+		// Read sizing config
+		sizingConfigData, err := os.ReadFile("resources/150-ha_sizing_values.yaml")
+		require.NoError(sss.T(), err)
+
+		var sizingConfig observability.SizingConfig
+		err = yaml.Unmarshal(sizingConfigData, &sizingConfig)
+		require.NoError(sss.T(), err)
+
+		// Convert structs back to map[string]interface{} for chart values
+		ingressConfigMap, err := structToMap(ingressConfig)
+		require.NoError(sss.T(), err)
+
+		baseConfigMap, err := structToMap(baseConfig)
+		require.NoError(sss.T(), err)
+
+		sizingConfigMap, err := structToMap(sizingConfig)
+		require.NoError(sss.T(), err)
+
+		// Merge the values
+		mergedValues := mergeValues(ingressConfigMap, baseConfigMap, sizingConfigMap)
+
+		systemProject, err := rancherProjects.GetProjectByName(sss.client, sss.cluster.ID, systemProject)
+		require.NoError(sss.T(), err)
+		require.NotNil(sss.T(), systemProject.ID, "System project is nil.")
+		systemProjectID := strings.Split(systemProject.ID, ":")[1]
+
+		// Install the chart
+		err = charts.InstallStackStateChart(sss.client, sss.stackstateChartInstallOptions, sss.stackstateConfigs, systemProjectID, mergedValues)
+		require.NoError(sss.T(), err)
+	})
+}
 
 func TestStackStateServerTestSuite(t *testing.T) {
 	suite.Run(t, new(StackStateServerTestSuite))
